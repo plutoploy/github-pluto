@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/palantir/go-githubapp/githubapp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"plutoploy/plutoploy-gh-bot/config"
@@ -77,12 +78,22 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to load installations")
 	}
 
-	handler := webhook.NewHandler(cfg, installationStore)
+	// Shared client creator: caches installation transports/tokens.
+	clientCreator, err := githubapp.NewDefaultCachingClientCreator(cfg.GitHub)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create GitHub client creator")
+	}
+
+	handler := webhook.NewHandler(clientCreator, installationStore)
+
+	// Webhook dispatcher: validates signatures and routes events to the
+	// registered EventHandlers.
+	webhookDispatcher := githubapp.NewDefaultEventDispatcher(cfg.GitHub, handler.EventHandlers()...)
 
 	mux := http.NewServeMux()
 
 	// Webhook endpoint for GitHub events
-	mux.HandleFunc("/webhook", handler.HandleWebhook)
+	mux.Handle("/webhook", webhookDispatcher)
 
 	// API endpoints
 	mux.HandleFunc("/api/repos", handler.FetchAllRepos)
@@ -111,8 +122,11 @@ func main() {
 		Handler: wrappedHandler,
 	}
 
-	// Start smee client if configured
+	// Determine the webhook URL to register in the GitHub App.
+	// Priority: PUBLIC_URL (reverse proxy) > SMEE_URL > localhost.
+	webhookURL := fmt.Sprintf("http://localhost:%d/webhook", cfg.Port)
 	if cfg.SmeeURL != "" {
+		webhookURL = cfg.SmeeURL
 		targetURL := fmt.Sprintf("http://localhost:%d/webhook", cfg.Port)
 		smeeClient := smee.NewClient(cfg.SmeeURL, targetURL)
 		go func() {
@@ -120,6 +134,9 @@ func main() {
 				log.Error().Err(err).Msg("Smee client failed")
 			}
 		}()
+	}
+	if cfg.PublicURL != "" {
+		webhookURL = cfg.PublicURL + "/webhook"
 	}
 
 	// Graceful shutdown
@@ -134,7 +151,11 @@ func main() {
 
 	log.Info().
 		Int("port", cfg.Port).
+		Str("webhook_url", webhookURL).
 		Msg("Starting Plutoploy GH Bot")
+	log.Info().
+		Str("webhook_url", webhookURL).
+		Msg("Register this URL in your GitHub App settings (Webhook URL)")
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal().Err(err).Msg("Server failed")

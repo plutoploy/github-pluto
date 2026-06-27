@@ -4,37 +4,27 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
-	"os"
 	"time"
 
-	"github.com/bradleyfalzon/ghinstallation/v2"
-	"github.com/google/go-github/v62/github"
+	"github.com/google/go-github/v88/github"
+	"github.com/palantir/go-githubapp/githubapp"
 	"github.com/rs/zerolog/log"
-	"plutoploy/plutoploy-gh-bot/config"
 )
 
+// Client wraps a go-github client that is already authenticated for a
+// specific App installation.
 type Client struct {
 	*github.Client
 }
 
-func NewClient(cfg *config.Config, installationID int64) (*Client, error) {
-	privateKey, err := os.ReadFile(cfg.PrivateKey)
+// NewClient returns an installation-authenticated client using the shared
+// go-githubapp ClientCreator. The creator caches transports and tokens, so
+// callers may request clients freely without managing credentials.
+func NewClient(cc githubapp.ClientCreator, installationID int64) (*Client, error) {
+	client, err := cc.NewInstallationClient(installationID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read private key: %w", err)
+		return nil, fmt.Errorf("failed to create installation client: %w", err)
 	}
-
-	itr, err := ghinstallation.New(
-		http.DefaultTransport,
-		cfg.AppID,
-		installationID,
-		privateKey,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create installation transport: %w", err)
-	}
-
-	client := github.NewClient(&http.Client{Transport: itr})
 	return &Client{Client: client}, nil
 }
 
@@ -130,12 +120,12 @@ func (c *Client) GetWorkflowRuns(ctx context.Context, owner, repo string) ([]Wor
 
 func (c *Client) GetWorkflowRunLogs(ctx context.Context, owner, repo string, runID int64) ([]byte, error) {
 	url := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/logs", owner, repo, runID)
-	req, err := c.NewRequest("GET", url, nil)
+	req, err := c.NewRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	resp, err := c.Do(ctx, req, nil)
+	resp, err := c.Do(req, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs: %w", err)
 	}
