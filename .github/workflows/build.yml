@@ -64,3 +64,4 @@ jobs:
           name: Release ${{ github.ref_name }}
           generate_release_notes: true
           files: dist/**/*
+          tag: ${{ github.ref_name }}
