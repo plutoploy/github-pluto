@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -40,8 +42,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
-          name: github-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: github-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: container_agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: container_agent-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     needs: build
@@ -58,5 +60,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@master
         with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           generate_release_notes: true
-          files: dist/*
+          files: dist/**/*
