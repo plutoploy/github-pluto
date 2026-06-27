@@ -1,3 +1,4 @@
 [tools]
 go = "latest"
 clang = "latest"
+actionlint = "latest"

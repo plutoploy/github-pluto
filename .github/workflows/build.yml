@@ -40,8 +40,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
-          name: ${{ github.repository }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ github.repository }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     needs: build
