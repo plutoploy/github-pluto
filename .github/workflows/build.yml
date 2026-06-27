@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -37,13 +37,13 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
-        run: go build -trimpath -ldflags="-s -w" -o container_agent-${{ matrix.goos }}-${{ matrix.goarch }} .
+        run: go build -trimpath -ldflags="-s -w" -o gh-bot-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
-          name: container_agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: container_agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: gh-bot-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: gh-bot-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     needs: build
