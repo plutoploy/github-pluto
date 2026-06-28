@@ -2,8 +2,6 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -37,13 +35,13 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
-        run: go build -trimpath -ldflags="-s -w" -o gh-bot-${{ matrix.goos }}-${{ matrix.goarch }} .
+        run: go build -trimpath -ldflags="-s -w" -o ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
-          name: gh-bot-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: gh-bot-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ github.event.repository.name }}-${{ matrix.goos }}-${{ matrix.goarch }}
 
   release:
     needs: build
@@ -60,8 +58,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@master
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
           generate_release_notes: true
           files: dist/**/*
-          tag: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          token: ${{ github.token }}
