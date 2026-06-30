@@ -2,13 +2,14 @@ package webhook
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/palantir/go-githubapp/githubapp"
+	"github.com/rs/zerolog/log"
 	ghclient "plutoploy/plutoploy-gh-bot/github"
 	"plutoploy/plutoploy-gh-bot/sse"
 	"plutoploy/plutoploy-gh-bot/store"
@@ -45,131 +46,128 @@ func parseInt64(s string) int64 {
 	return v
 }
 
-func writeJSON(w http.ResponseWriter, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
-}
-
-func (h *Handler) FetchAllRepos(w http.ResponseWriter, r *http.Request) {
-	installationID := r.URL.Query().Get("installation_id")
+// FetchAllRepos returns all repositories accessible to the given installation.
+func (h *Handler) FetchAllRepos(c *gin.Context) {
+	installationID := c.Query("installation_id")
 	if installationID == "" {
-		http.Error(w, "installation_id required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "installation_id required"})
 		return
 	}
 
 	ghClient, err := h.newGitHubClient(parseInt64(installationID))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create client: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create client: %v", err)})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	repos, err := ghClient.GetAllRepos(ctx)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to fetch repos: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch repos: %v", err)})
 		return
 	}
 
-	writeJSON(w, repos)
+	c.JSON(http.StatusOK, repos)
 }
 
-func (h *Handler) GetWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	installationID := r.URL.Query().Get("installation_id")
-	owner := r.URL.Query().Get("owner")
-	repo := r.URL.Query().Get("repo")
+// GetWorkflowRuns returns the list of workflow runs for a repo.
+func (h *Handler) GetWorkflowRuns(c *gin.Context) {
+	installationID := c.Query("installation_id")
+	owner := c.Query("owner")
+	repo := c.Query("repo")
 
 	if installationID == "" || owner == "" || repo == "" {
-		http.Error(w, "installation_id, owner, repo required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "installation_id, owner, repo required"})
 		return
 	}
 
 	ghClient, err := h.newGitHubClient(parseInt64(installationID))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create client: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create client: %v", err)})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	runs, err := ghClient.GetWorkflowRuns(ctx, owner, repo)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to fetch runs: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch runs: %v", err)})
 		return
 	}
 
-	writeJSON(w, runs)
+	c.JSON(http.StatusOK, runs)
 }
 
-func (h *Handler) GetWorkflowLogs(w http.ResponseWriter, r *http.Request) {
-	installationID := r.URL.Query().Get("installation_id")
-	owner := r.URL.Query().Get("owner")
-	repo := r.URL.Query().Get("repo")
-	runIDStr := r.URL.Query().Get("run_id")
+// GetWorkflowLogs returns the logs zip for a specific workflow run.
+func (h *Handler) GetWorkflowLogs(c *gin.Context) {
+	installationID := c.Query("installation_id")
+	owner := c.Query("owner")
+	repo := c.Query("repo")
+	runIDStr := c.Query("run_id")
 
 	if installationID == "" || owner == "" || repo == "" || runIDStr == "" {
-		http.Error(w, "installation_id, owner, repo, run_id required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "installation_id, owner, repo, run_id required"})
 		return
 	}
 
 	ghClient, err := h.newGitHubClient(parseInt64(installationID))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create client: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create client: %v", err)})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	runID := parseInt64(runIDStr)
 	logs, err := ghClient.GetWorkflowRunLogs(ctx, owner, repo, runID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to fetch logs: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch logs: %v", err)})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="logs-%d.zip"`, runID))
-	w.Write(logs)
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="logs-%d.zip"`, runID))
+	if _, err := c.Writer.Write(logs); err != nil {
+		log.Error().Err(err).Msg("Failed to write logs response")
+	}
 }
 
-func (h *Handler) GetWorkflowStatus(w http.ResponseWriter, r *http.Request) {
-	installationID := r.URL.Query().Get("installation_id")
-	owner := r.URL.Query().Get("owner")
-	repo := r.URL.Query().Get("repo")
-	runIDStr := r.URL.Query().Get("run_id")
+// GetWorkflowStatus returns the status of a specific workflow run.
+func (h *Handler) GetWorkflowStatus(c *gin.Context) {
+	installationID := c.Query("installation_id")
+	owner := c.Query("owner")
+	repo := c.Query("repo")
+	runIDStr := c.Query("run_id")
 
 	if installationID == "" || owner == "" || repo == "" || runIDStr == "" {
-		http.Error(w, "installation_id, owner, repo, run_id required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "installation_id, owner, repo, run_id required"})
 		return
 	}
 
 	ghClient, err := h.newGitHubClient(parseInt64(installationID))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create client: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create client: %v", err)})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	status, err := ghClient.GetWorkflowRunStatus(ctx, owner, repo, parseInt64(runIDStr))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to fetch status: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch status: %v", err)})
 		return
 	}
 
-	writeJSON(w, status)
+	c.JSON(http.StatusOK, status)
 }
 
-func (h *Handler) InjectFile(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+// InjectFile creates or updates a file in a GitHub repository.
+func (h *Handler) InjectFile(c *gin.Context) {
 	var req struct {
 		InstallationID int64  `json:"installation_id"`
 		Owner          string `json:"owner"`
@@ -180,82 +178,95 @@ func (h *Handler) InjectFile(w http.ResponseWriter, r *http.Request) {
 		Branch         string `json:"branch"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	// Limit body to 10 MiB to prevent memory exhaustion.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
 	if req.Owner == "" || req.Repo == "" || req.Path == "" || req.Content == "" || req.Message == "" {
-		http.Error(w, "owner, repo, path, content, message required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "owner, repo, path, content, message required"})
 		return
 	}
 
 	ghClient, err := h.newGitHubClient(req.InstallationID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create client: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create client: %v", err)})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
 	if err := ghClient.InjectFile(ctx, req.Owner, req.Repo, req.Path, req.Content, req.Message, req.Branch); err != nil {
-		http.Error(w, fmt.Sprintf("Failed to inject file: %v", err), http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to inject file: %v", err)})
 		return
 	}
 
-	writeJSON(w, map[string]string{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-func (h *Handler) ListInstallations(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, h.store.List())
+// ListInstallations returns all registered GitHub App installations.
+func (h *Handler) ListInstallations(c *gin.Context) {
+	c.JSON(http.StatusOK, h.store.List())
 }
 
 // ServeEvents streams real-time events for a single user's room over SSE.
 // Clients must pass ?owner=<account-login>; they only receive events whose
 // owner matches, giving each user an isolated room.
-func (h *Handler) ServeEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
+func (h *Handler) ServeEvents(c *gin.Context) {
+	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
 		return
 	}
 
-	room := r.URL.Query().Get("owner")
+	room := c.Query("owner")
 	if room == "" {
-		http.Error(w, "owner required", http.StatusBadRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "owner required"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
 
 	sub := h.broker.Subscribe(room)
 	defer h.broker.Unsubscribe(sub)
 
 	// Tell the client the stream is open and prompt proxies to flush.
-	fmt.Fprintf(w, ": connected to room %s\n\n", room)
+	if _, err := fmt.Fprintf(c.Writer, ": connected to room %s\n\n", room); err != nil {
+		log.Warn().Err(err).Msg("SSE initial write failed")
+		return
+	}
 	flusher.Flush()
 
 	// Periodic comment frames keep the connection alive through proxies.
 	keepalive := time.NewTicker(25 * time.Second)
 	defer keepalive.Stop()
 
-	ctx := r.Context()
+	ctx := c.Request.Context()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-keepalive.C:
-			fmt.Fprint(w, ": keepalive\n\n")
+			if _, err := fmt.Fprint(c.Writer, ": keepalive\n\n"); err != nil {
+				log.Warn().Err(err).Msg("SSE keepalive write failed, closing stream")
+				return
+			}
 			flusher.Flush()
 		case data, ok := <-sub.Events():
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", data); err != nil {
+				log.Warn().Err(err).Msg("SSE data write failed, closing stream")
+				return
+			}
 			flusher.Flush()
 		}
 	}

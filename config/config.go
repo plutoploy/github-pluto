@@ -11,9 +11,9 @@ import (
 )
 
 type Config struct {
-	Port       int
-	SmeeURL    string
-	PublicURL  string // external base URL when behind a reverse proxy
+	Port      int
+	PublicURL string // external base URL when behind a reverse proxy
+	StorePath string // path to the installations JSON file
 
 	// GitHub holds the GitHub App credentials and API endpoints used by
 	// go-githubapp's client creator and event dispatcher.
@@ -32,8 +32,8 @@ func Load() *Config {
 
 	return &Config{
 		Port:      port,
-		SmeeURL:   getEnv("SMEE_URL", ""),
 		PublicURL: strings.TrimRight(getEnv("PUBLIC_URL", ""), "/"),
+		StorePath: getEnv("STORE_PATH", "installations.json"),
 		GitHub:    gh,
 	}
 }
